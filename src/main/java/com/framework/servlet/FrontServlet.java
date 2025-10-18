@@ -1,4 +1,4 @@
-package com.framework;
+package com.framework.servlet;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
