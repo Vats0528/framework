@@ -12,6 +12,7 @@ public class RequestFilter implements Filter {
     @Override
     public void init(FilterConfig filterConfig) {
         this.context = filterConfig.getServletContext();
+        System.out.println("✅ RequestFilter initialisé");
     }
 
     @Override
@@ -22,18 +23,21 @@ public class RequestFilter implements Filter {
         HttpServletResponse res = (HttpServletResponse) response;
         String path = req.getRequestURI().substring(req.getContextPath().length());
 
-        // Vérifie si la ressource existe physiquement dans le dossier du projet
+        System.out.println("🔍 Filtre - URL demandée: " + path);
+
+        // Vérifie si la ressource existe physiquement
         String realPath = context.getRealPath(path);
         File resource = new File(realPath != null ? realPath : "");
 
         if (resource.exists() && !resource.isDirectory()) {
-            // Si la ressource existe, Tomcat la sert normalement
+            System.out.println("📁 Ressource statique trouvée: " + path);
             chain.doFilter(request, response);
-        } else if (path.startsWith("/front")) {
-            // Si l'URL commence par /front, on envoie vers la FrontServlet
-            req.getRequestDispatcher(path).forward(req, res);
+        } else if (path.startsWith("/front") || path.startsWith("/admin") || path.startsWith("/api")) {
+            System.out.println("🚀 URL framework détectée, redirection vers FrontServlet: " + path);
+            // Redirige vers notre point d'entrée unique
+            req.getRequestDispatcher("/dispatch" + path).forward(req, res);
         } else {
-            // Sinon, on renvoie une erreur 404
+            System.out.println("❌ URL non trouvée: " + path);
             res.sendError(HttpServletResponse.SC_NOT_FOUND, "Ressource non trouvée : " + path);
         }
     }
