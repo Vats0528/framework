@@ -68,7 +68,7 @@ public class FrontServlet extends HttpServlet {
         String contextPath = request.getContextPath();
         String path = uri.substring(contextPath.length());
         
-        System.out.println("🔍 URL demandée: " + path);
+        System.out.println(" URL demandée: " + path);
         
         response.setContentType("text/html;charset=UTF-8");
         

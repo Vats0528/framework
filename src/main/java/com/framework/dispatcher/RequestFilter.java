@@ -8,7 +8,7 @@ public class RequestFilter implements Filter {
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        System.out.println("🔧 Filter initialized");
+        System.out.println(" Filter initialized");
     }
 
     @Override
@@ -20,7 +20,7 @@ public class RequestFilter implements Filter {
         
         String path = req.getRequestURI().substring(req.getContextPath().length());
         
-        System.out.println("🔄 Filter - Path: " + path);
+        System.out.println(" Filter - Path: " + path);
         
         // Raha URL manomboka amin'ny /front, alefa any amin'ny FrontServlet
         if (path.startsWith("/front")) {
