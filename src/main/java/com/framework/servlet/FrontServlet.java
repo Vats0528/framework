@@ -1,116 +1,260 @@
 package com.framework.servlet;
 
 import com.framework.annotation.*;
+import com.framework.model.ModelView;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
-import java.io.IOException;
-import java.lang.reflect.Method;
+import java.io.*;
+import java.lang.reflect.*;
+import java.net.URL;
 import java.util.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 public class FrontServlet extends HttpServlet {
-    
-    private Map<String, Mapping> urlMappings = new HashMap<>();
 
     @Override
     public void init() throws ServletException {
         super.init();
-        System.out.println(" Initialisation Framework...");
-        
+        System.out.println("\n=== Initialisation du Framework (Sprint 4 bis) ===");
+
+        String basePackage = "com.test.controllers";
+        Map<String, Method> urlMapping = new HashMap<>();
+        Map<String, Object> controllerInstances = new HashMap<>();
+
         try {
-            // Scanner ny contrôleurs
-            scanControllers("com.test.controllers");
-            getServletContext().setAttribute("URL_MAPPINGS", urlMappings);
-            System.out.println(" Framework initialisé: " + urlMappings.size() + " URLs mappées");
+            List<Class<?>> classes = getClasses(basePackage);
+            System.out.println("Classes trouvées : " + classes.size());
             
+            for (Class<?> cls : classes) {
+                System.out.println("Classe analysée : " + cls.getName());
+                
+                if (cls.isAnnotationPresent(Controller.class)) {
+                    System.out.println("  -> @Controller détecté");
+                    Object instance = cls.getDeclaredConstructor().newInstance();
+
+                    for (Method method : cls.getDeclaredMethods()) {
+                        if (method.isAnnotationPresent(Url.class)) {
+                            Url annotation = method.getAnnotation(Url.class);
+                            String url = annotation.value();
+                            
+                            // Normaliser l'URL (enlever le /front si présent dans l'annotation)
+                            if (!url.startsWith("/")) {
+                                url = "/" + url;
+                            }
+                            
+                            urlMapping.put(url, method);
+                            controllerInstances.put(url, instance);
+
+                            System.out.printf("   ➜ URL: %-25s → %s.%s()%n",
+                                    url, cls.getSimpleName(), method.getName());
+                        }
+                    }
+                }
+            }
+
+            System.out.println("\n=== Mappings enregistrés : " + urlMapping.keySet() + " ===\n");
+
+            getServletContext().setAttribute("URL_MAPPING", urlMapping);
+            getServletContext().setAttribute("CONTROLLERS", controllerInstances);
         } catch (Exception e) {
-            throw new ServletException("Erreur initialisation framework", e);
+            System.err.println("ERREUR lors de l'initialisation :");
+            e.printStackTrace();
+            throw new ServletException("Erreur d'initialisation du framework", e);
         }
     }
 
-    private void scanControllers(String packageName) throws Exception {
-        // Manao simulation fotsiny satria tsy mety ny scanner
-        // Ampidirina mivantana ny contrôleur
-        Class<?> controllerClass = Class.forName("com.test.controllers.TestController");
+    private List<Class<?>> getClasses(String packageName) throws Exception {
+        List<Class<?>> classes = new ArrayList<>();
+        String path = packageName.replace('.', '/');
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         
-        if (controllerClass.isAnnotationPresent(Controller.class)) {
-            Controller controllerAnn = controllerClass.getAnnotation(Controller.class);
-            String baseUrl = controllerAnn.value();
-            Object controllerInstance = controllerClass.getDeclaredConstructor().newInstance();
+        System.out.println("Recherche dans le package : " + packageName);
+        System.out.println("Chemin de recherche : " + path);
+        
+        Enumeration<URL> resources = classLoader.getResources(path);
+    
+        if (!resources.hasMoreElements()) {
+            System.err.println("⚠️ ATTENTION : Aucune ressource trouvée pour le package " + packageName);
+            System.err.println("   Vérifiez que le JAR contient bien ce package");
+        }
+        
+        while (resources.hasMoreElements()) {
+            URL resource = resources.nextElement();
+            String protocol = resource.getProtocol();
             
-            for (Method method : controllerClass.getDeclaredMethods()) {
-                if (method.isAnnotationPresent(Url.class)) {
-                    Url urlAnn = method.getAnnotation(Url.class);
-                    String fullUrl = baseUrl + urlAnn.value();
-                    
-                    urlMappings.put(fullUrl, new Mapping(controllerInstance, method));
-                    System.out.println(" " + fullUrl + " → " + method.getName());
+            System.out.println("Ressource trouvée : " + resource);
+            System.out.println("Protocole : " + protocol);
+    
+            if (protocol.equals("file")) {
+                File directory = new File(resource.getFile());
+                if (directory.exists()) {
+                    File[] files = directory.listFiles();
+                    if (files != null) {
+                        for (File file : files) {
+                            if (file.getName().endsWith(".class")) {
+                                String className = packageName + '.' + file.getName().substring(0, file.getName().length() - 6);
+                                System.out.println("  Chargement : " + className);
+                                classes.add(Class.forName(className));
+                            }
+                        }
+                    }
+                }
+            } else if (protocol.equals("jar")) {
+                // Support JAR/WAR
+                String jarPath = resource.getPath();
+                
+                // Extraction du chemin du JAR
+                if (jarPath.startsWith("file:")) {
+                    jarPath = jarPath.substring(5);
+                }
+                int separatorIndex = jarPath.indexOf("!");
+                if (separatorIndex != -1) {
+                    jarPath = jarPath.substring(0, separatorIndex);
+                }
+                
+                // Décodage de l'URL (pour les espaces et caractères spéciaux)
+                jarPath = java.net.URLDecoder.decode(jarPath, "UTF-8");
+                
+                System.out.println("Lecture du JAR : " + jarPath);
+                
+                try (JarFile jarFile = new JarFile(jarPath)) {
+                    Enumeration<JarEntry> entries = jarFile.entries();
+                    while (entries.hasMoreElements()) {
+                        JarEntry entry = entries.nextElement();
+                        String entryName = entry.getName();
+                        
+                        if (entryName.startsWith(path) && entryName.endsWith(".class") && !entry.isDirectory()) {
+                            String className = entryName.replace('/', '.').substring(0, entryName.length() - 6);
+                            System.out.println("  Chargement depuis JAR : " + className);
+                            try {
+                                classes.add(Class.forName(className));
+                            } catch (ClassNotFoundException e) {
+                                System.err.println("  ⚠️ Classe non trouvée : " + className);
+                            }
+                        }
+                    }
                 }
             }
         }
-    }
+    
+        return classes;
+    }    
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) 
             throws ServletException, IOException {
-        doProcess(request, response);
+        processRequest(request, response);
     }
 
     @Override
-    protected void doPost(HttpServletRequest request, HttpServletResponse response) 
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        doProcess(request, response);
+        processRequest(request, response);
     }
 
-    private void doProcess(HttpServletRequest request, HttpServletResponse response) 
-            throws IOException {
-        
-        String uri = request.getRequestURI();
-        String contextPath = request.getContextPath();
-        String path = uri.substring(contextPath.length());
-        
-        System.out.println("🔍 URL demandée: " + path);
-        
+    private void processRequest(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+
         response.setContentType("text/html;charset=UTF-8");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Method> urlMapping = (Map<String, Method>) getServletContext().getAttribute("URL_MAPPING");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> controllers = (Map<String, Object>) getServletContext().getAttribute("CONTROLLERS");
+
+        String fullPath = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        String path = fullPath.substring(contextPath.length());
         
-        Mapping mapping = urlMappings.get(path);
+        // Enlever le préfixe /front si présent
+        if (path.startsWith("/front")) {
+            path = path.substring(6); // Enlève "/front"
+        }
         
-        if (mapping != null) {
+        // S'assurer que le path commence par /
+        if (!path.startsWith("/") && !path.isEmpty()) {
+            path = "/" + path;
+        }
+        
+        PrintWriter out = response.getWriter();
+        
+        System.out.println("\n=== Requête reçue ===");
+        System.out.println("URI complète : " + fullPath);
+        System.out.println("Context path : " + contextPath);
+        System.out.println("Path extrait : " + path);
+        System.out.println("Mappings disponibles : " + (urlMapping != null ? urlMapping.keySet() : "null"));
+
+        if (urlMapping != null && urlMapping.containsKey(path)) {
+            Method method = urlMapping.get(path);
+            Object controller = controllers.get(path);
+
+            System.out.println("✓ Mapping trouvé : " + method.getDeclaringClass().getSimpleName() + "." + method.getName());
+
             try {
-                String result = (String) mapping.method.invoke(mapping.controller);
-                
-                // Soraty ny valiny
-                response.getWriter().println("<html><body>");
-                response.getWriter().println("<h1>" + result + "</h1>");
-                response.getWriter().println("<p><strong>URL:</strong> " + path + "</p>");
-                response.getWriter().println("<p><a href='" + contextPath + "/front'>Accueil</a> | ");
-                response.getWriter().println("<a href='" + contextPath + "/front/home'>Home</a> | ");
-                response.getWriter().println("<a href='" + contextPath + "/front/about'>About</a></p>");
-                response.getWriter().println("</body></html>");
-                
+                Object result = method.invoke(controller);
+
+                if (result instanceof String str) {
+                    out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
+                    out.println("<h3>Résultat :</h3><pre>" + str + "</pre>");
+                    out.println("</body></html>");
+                } 
+                else if (result instanceof ModelView mv) {
+                    request.setAttribute("data", mv);
+                    String viewPath = mv.getView();
+                    
+                    // Ajouter .jsp si pas d'extension
+                    if (!viewPath.endsWith(".jsp")) {
+                        viewPath += ".jsp";
+                    }
+                    
+                    // Ajouter / au début si absent
+                    if (!viewPath.startsWith("/")) {
+                        viewPath = "/" + viewPath;
+                    }
+                    
+                    System.out.println("Forward vers la vue : " + viewPath);
+                    RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
+                    dispatcher.forward(request, response);
+                }
+                else {
+                    out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
+                    out.println("<p>Méthode exécutée avec succès (retour : " + (result != null ? result.getClass().getSimpleName() : "null") + ")</p>");
+                    out.println("</body></html>");
+                }
+
+            } catch (InvocationTargetException e) {
+                System.err.println("Erreur lors de l'invocation de la méthode :");
+                e.getCause().printStackTrace();
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
+                out.println("<h2>500 - Erreur lors de l'exécution</h2>");
+                out.println("<pre>");
+                e.getCause().printStackTrace(out);
+                out.println("</pre></body></html>");
             } catch (Exception e) {
-                response.sendError(500, "Erreur: " + e.getMessage());
+                System.err.println("Erreur inattendue :");
+                e.printStackTrace();
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
+                out.println("<h2>500 - Erreur interne</h2>");
+                out.println("<pre>");
+                e.printStackTrace(out);
+                out.println("</pre></body></html>");
             }
         } else {
-            // Afficher liste des URLs disponibles
-            response.getWriter().println("<html><body>");
-            response.getWriter().println("<h2>URLs Disponibles:</h2>");
-            response.getWriter().println("<ul>");
-            for (String url : urlMappings.keySet()) {
-                response.getWriter().println("<li><a href='" + contextPath + url + "'>" + url + "</a></li>");
+            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
+            out.println("<h2>404 - URL non trouvée</h2>");
+            out.println("<p>Path demandé : <strong>" + path + "</strong></p>");
+            out.println("<p>Mappings disponibles :</p><ul>");
+            if (urlMapping != null) {
+                for (String url : urlMapping.keySet()) {
+                    out.println("<li>" + url + "</li>");
+                }
             }
-            response.getWriter().println("</ul>");
-            response.getWriter().println("</body></html>");
-        }
-    }
-    
-    // Classe interne pour stocker les mappings
-    private static class Mapping {
-        Object controller;
-        Method method;
-        
-        Mapping(Object controller, Method method) {
-            this.controller = controller;
-            this.method = method;
+            out.println("</ul></body></html>");
+            System.err.println("✗ Aucun mapping pour : " + path);
         }
     }
 }
