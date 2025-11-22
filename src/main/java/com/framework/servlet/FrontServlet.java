@@ -88,7 +88,6 @@ public class FrontServlet extends HttpServlet {
                             Url annotation = method.getAnnotation(Url.class);
                             String url = annotation.value();
                             
-                            // Normaliser l'URL (enlever le /front si présent dans l'annotation)
                             if (!url.startsWith("/")) {
                                 url = "/" + url;
                             }
@@ -150,10 +149,8 @@ public class FrontServlet extends HttpServlet {
                     }
                 }
             } else if (protocol.equals("jar")) {
-                // Support JAR/WAR
                 String jarPath = resource.getPath();
                 
-                // Extraction du chemin du JAR
                 if (jarPath.startsWith("file:")) {
                     jarPath = jarPath.substring(5);
                 }
@@ -162,7 +159,6 @@ public class FrontServlet extends HttpServlet {
                     jarPath = jarPath.substring(0, separatorIndex);
                 }
                 
-                // Décodage de l'URL (pour les espaces et caractères spéciaux)
                 jarPath = java.net.URLDecoder.decode(jarPath, "UTF-8");
                 
                 System.out.println("Lecture du JAR : " + jarPath);
@@ -214,12 +210,10 @@ public class FrontServlet extends HttpServlet {
         String contextPath = request.getContextPath();
         String path = fullPath.substring(contextPath.length());
         
-        // Enlever le préfixe /front si présent
         if (path.startsWith("/front")) {
-            path = path.substring(6); // Enlève "/front"
+            path = path.substring(6);
         }
         
-        // S'assurer que le path commence par /
         if (!path.startsWith("/") && !path.isEmpty()) {
             path = "/" + path;
         }
@@ -263,15 +257,17 @@ public class FrontServlet extends HttpServlet {
                     out.println("</body></html>");
                 } 
                 else if (result instanceof ModelView mv) {
-                    request.setAttribute("data", mv);
+                    // Ajouter tous les attributs du ModelView à la requête
+                    for (Map.Entry<String, Object> entry : mv.getAttributes().entrySet()) {
+                        request.setAttribute(entry.getKey(), entry.getValue());
+                    }
+                    
                     String viewPath = mv.getView();
                     
-                    // Ajouter .jsp si pas d'extension
                     if (!viewPath.endsWith(".jsp")) {
                         viewPath += ".jsp";
                     }
                     
-                    // Ajouter / au début si absent
                     if (!viewPath.startsWith("/")) {
                         viewPath = "/" + viewPath;
                     }
