@@ -123,7 +123,7 @@ public class FrontServlet extends HttpServlet {
         Enumeration<URL> resources = classLoader.getResources(path);
     
         if (!resources.hasMoreElements()) {
-            System.err.println(" ATTENTION : Aucune ressource trouvée pour le package " + packageName);
+            System.err.println("⚠️ ATTENTION : Aucune ressource trouvée pour le package " + packageName);
             System.err.println("   Vérifiez que le JAR contient bien ce package");
         }
         
