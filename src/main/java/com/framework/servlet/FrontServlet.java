@@ -10,17 +10,67 @@ import java.net.URL;
 import java.util.*;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class FrontServlet extends HttpServlet {
+
+    private static class UrlPattern {
+        String pattern;
+        Pattern regex;
+        Method method;
+        Object controller;
+        List<String> paramNames;
+
+        UrlPattern(String pattern, Method method, Object controller) {
+            this.pattern = pattern;
+            this.method = method;
+            this.controller = controller;
+            this.paramNames = new ArrayList<>();
+            
+            // Convertir le pattern en regex
+            String regexPattern = pattern;
+            
+            // Trouver tous les paramètres {xxx}
+            Pattern paramPattern = Pattern.compile("\\{([^}]+)\\}");
+            Matcher matcher = paramPattern.matcher(regexPattern);
+            
+            while (matcher.find()) {
+                this.paramNames.add(matcher.group(1));
+            }
+            
+            // Remplacer {xxx} par ([^/]+) pour matcher n'importe quelle valeur
+            regexPattern = regexPattern.replaceAll("\\{[^}]+\\}", "([^/]+)");
+            regexPattern = "^" + regexPattern + "$";
+            
+            this.regex = Pattern.compile(regexPattern);
+        }
+
+        boolean matches(String url) {
+            return this.regex.matcher(url).matches();
+        }
+
+        Map<String, String> extractParams(String url) {
+            Map<String, String> params = new HashMap<>();
+            Matcher matcher = this.regex.matcher(url);
+            
+            if (matcher.matches()) {
+                for (int i = 0; i < this.paramNames.size(); i++) {
+                    params.put(this.paramNames.get(i), matcher.group(i + 1));
+                }
+            }
+            
+            return params;
+        }
+    }
 
     @Override
     public void init() throws ServletException {
         super.init();
-        System.out.println("\n=== Initialisation du Framework (Sprint 5) ===");
+        System.out.println("\n=== Initialisation du Framework (Sprint 3-bis) ===");
 
         String basePackage = "com.test.controllers";
-        Map<String, Method> urlMapping = new HashMap<>();
-        Map<String, Object> controllerInstances = new HashMap<>();
+        List<UrlPattern> urlPatterns = new ArrayList<>();
 
         try {
             List<Class<?>> classes = getClasses(basePackage);
@@ -42,20 +92,19 @@ public class FrontServlet extends HttpServlet {
                                 url = "/" + url;
                             }
                             
-                            urlMapping.put(url, method);
-                            controllerInstances.put(url, instance);
+                            UrlPattern urlPattern = new UrlPattern(url, method, instance);
+                            urlPatterns.add(urlPattern);
 
-                            System.out.printf("   ➜ URL: %-25s → %s.%s()%n",
+                            System.out.printf("   ➜ Pattern: %-25s → %s.%s()%n",
                                     url, cls.getSimpleName(), method.getName());
                         }
                     }
                 }
             }
 
-            System.out.println("\n=== Mappings enregistrés : " + urlMapping.keySet() + " ===\n");
+            System.out.println("\n=== Patterns enregistrés : " + urlPatterns.size() + " ===\n");
 
-            getServletContext().setAttribute("URL_MAPPING", urlMapping);
-            getServletContext().setAttribute("CONTROLLERS", controllerInstances);
+            getServletContext().setAttribute("URL_PATTERNS", urlPatterns);
         } catch (Exception e) {
             System.err.println("ERREUR lors de l'initialisation :");
             e.printStackTrace();
@@ -74,7 +123,7 @@ public class FrontServlet extends HttpServlet {
         Enumeration<URL> resources = classLoader.getResources(path);
     
         if (!resources.hasMoreElements()) {
-            System.err.println("⚠️ ATTENTION : Aucune ressource trouvée pour le package " + packageName);
+            System.err.println(" ATTENTION : Aucune ressource trouvée pour le package " + packageName);
             System.err.println("   Vérifiez que le JAR contient bien ce package");
         }
         
@@ -155,9 +204,7 @@ public class FrontServlet extends HttpServlet {
         response.setContentType("text/html;charset=UTF-8");
 
         @SuppressWarnings("unchecked")
-        Map<String, Method> urlMapping = (Map<String, Method>) getServletContext().getAttribute("URL_MAPPING");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> controllers = (Map<String, Object>) getServletContext().getAttribute("CONTROLLERS");
+        List<UrlPattern> urlPatterns = (List<UrlPattern>) getServletContext().getAttribute("URL_PATTERNS");
 
         String fullPath = request.getRequestURI();
         String contextPath = request.getContextPath();
@@ -177,16 +224,32 @@ public class FrontServlet extends HttpServlet {
         System.out.println("URI complète : " + fullPath);
         System.out.println("Context path : " + contextPath);
         System.out.println("Path extrait : " + path);
-        System.out.println("Mappings disponibles : " + (urlMapping != null ? urlMapping.keySet() : "null"));
 
-        if (urlMapping != null && urlMapping.containsKey(path)) {
-            Method method = urlMapping.get(path);
-            Object controller = controllers.get(path);
+        // Chercher un pattern qui correspond
+        UrlPattern matchedPattern = null;
+        Map<String, String> pathParams = new HashMap<>();
+        
+        if (urlPatterns != null) {
+            for (UrlPattern pattern : urlPatterns) {
+                if (pattern.matches(path)) {
+                    matchedPattern = pattern;
+                    pathParams = pattern.extractParams(path);
+                    break;
+                }
+            }
+        }
 
-            System.out.println("✓ Mapping trouvé : " + method.getDeclaringClass().getSimpleName() + "." + method.getName());
+        if (matchedPattern != null) {
+            System.out.println("✓ Pattern trouvé : " + matchedPattern.pattern);
+            System.out.println("  Paramètres extraits : " + pathParams);
 
             try {
-                Object result = method.invoke(controller);
+                // Ajouter les paramètres à la requête
+                for (Map.Entry<String, String> entry : pathParams.entrySet()) {
+                    request.setAttribute(entry.getKey(), entry.getValue());
+                }
+
+                Object result = matchedPattern.method.invoke(matchedPattern.controller);
 
                 if (result instanceof String str) {
                     out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
@@ -243,14 +306,14 @@ public class FrontServlet extends HttpServlet {
             out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
             out.println("<h2>404 - URL non trouvée</h2>");
             out.println("<p>Path demandé : <strong>" + path + "</strong></p>");
-            out.println("<p>Mappings disponibles :</p><ul>");
-            if (urlMapping != null) {
-                for (String url : urlMapping.keySet()) {
-                    out.println("<li>" + url + "</li>");
+            out.println("<p>Patterns disponibles :</p><ul>");
+            if (urlPatterns != null) {
+                for (UrlPattern pattern : urlPatterns) {
+                    out.println("<li>" + pattern.pattern + "</li>");
                 }
             }
             out.println("</ul></body></html>");
-            System.err.println("✗ Aucun mapping pour : " + path);
+            System.err.println("✗ Aucun pattern pour : " + path);
         }
     }
 }
