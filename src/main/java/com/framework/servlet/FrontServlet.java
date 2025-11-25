@@ -2,7 +2,7 @@ package com.framework.servlet;
 
 import com.framework.annotation.*;
 import com.framework.model.ModelView;
-import com.framework.annotation.Param;
+import com.framework.annotation.RequestParam;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.*;
@@ -65,7 +65,7 @@ public class FrontServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         super.init();
-        System.out.println("\n=== Initialisation du Framework (Sprint 6) ===");
+        System.out.println("\n=== Initialisation du Framework (Sprint 6-ter) ===");
 
         String basePackage = "com.test.controllers";
         List<UrlPattern> urlPatterns = new ArrayList<>();
@@ -254,7 +254,7 @@ public class FrontServlet extends HttpServlet {
                     request.setAttribute(entry.getKey(), entry.getValue());
                 }
 
-                // Préparer les arguments pour la méthode (Sprint 6)
+                // Préparer les arguments pour la méthode (Sprint 6-ter)
                 Parameter[] methodParams = matchedPattern.method.getParameters();
                 Object[] args = new Object[methodParams.length];
                 
@@ -263,15 +263,28 @@ public class FrontServlet extends HttpServlet {
                 for (int i = 0; i < methodParams.length; i++) {
                     Parameter param = methodParams[i];
                     String paramName = param.getName();
+                    String paramValue = null;
                     
-                    // Vérifier si @Param est présent
-                    Param paramAnnotation = param.getAnnotation(Param.class);
-                    if (paramAnnotation != null) {
-                        paramName = paramAnnotation.value();
-                        System.out.println("    - @Param détecté: " + paramName);
+                    // Vérifier si @RequestParam est présent
+                    RequestParam requestParamAnnotation = param.getAnnotation(RequestParam.class);
+                    if (requestParamAnnotation != null) {
+                        paramName = requestParamAnnotation.value();
+                        System.out.println("    - @RequestParam détecté: " + paramName);
                     }
                     
-                    String paramValue = request.getParameter(paramName);
+                    // ORDRE DE PRIORITÉ (Sprint 6-ter)
+                    // 1. Chercher d'abord dans les paramètres de l'URL
+                    if (pathParams.containsKey(paramName)) {
+                        paramValue = pathParams.get(paramName);
+                        System.out.println("    - " + paramName + " trouvé dans l'URL (priorité 1)");
+                    } 
+                    // 2. Sinon, chercher dans les paramètres de la requête
+                    else {
+                        paramValue = request.getParameter(paramName);
+                        if (paramValue != null) {
+                            System.out.println("    - " + paramName + " trouvé dans la requête (priorité 2)");
+                        }
+                    }
                     
                     System.out.println("    - " + paramName + " (type: " + param.getType().getSimpleName() + ") = " + paramValue);
                     
