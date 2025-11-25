@@ -2,6 +2,10 @@ package com.framework.servlet;
 
 import com.framework.annotation.*;
 import com.framework.model.ModelView;
+<<<<<<< Updated upstream
+=======
+import com.framework.annotation.RequestParam;
+>>>>>>> Stashed changes
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.*;
@@ -67,7 +71,11 @@ public class FrontServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         super.init();
+<<<<<<< Updated upstream
         System.out.println("\n=== Initialisation du Framework (Sprint 3-bis) ===");
+=======
+        System.out.println("\n=== Initialisation du Framework (Sprint 6-ter) ===");
+>>>>>>> Stashed changes
 
         String basePackage = "com.test.controllers";
         List<UrlPattern> urlPatterns = new ArrayList<>();
@@ -249,7 +257,66 @@ public class FrontServlet extends HttpServlet {
                     request.setAttribute(entry.getKey(), entry.getValue());
                 }
 
+<<<<<<< Updated upstream
                 Object result = matchedPattern.method.invoke(matchedPattern.controller);
+=======
+                // Préparer les arguments pour la méthode (Sprint 6-ter)
+                Parameter[] methodParams = matchedPattern.method.getParameters();
+                Object[] args = new Object[methodParams.length];
+                
+                System.out.println("  Paramètres de la méthode : " + methodParams.length);
+                
+                for (int i = 0; i < methodParams.length; i++) {
+                    Parameter param = methodParams[i];
+                    String paramName = param.getName();
+                    String paramValue = null;
+                    
+                    // Vérifier si @RequestParam est présent
+                    RequestParam requestParamAnnotation = param.getAnnotation(RequestParam.class);
+                    if (requestParamAnnotation != null) {
+                        paramName = requestParamAnnotation.value();
+                        System.out.println("    - @RequestParam détecté: " + paramName);
+                    }
+                    
+                    // ORDRE DE PRIORITÉ (Sprint 6-ter)
+                    // 1. Chercher d'abord dans les paramètres de l'URL
+                    if (pathParams.containsKey(paramName)) {
+                        paramValue = pathParams.get(paramName);
+                        System.out.println("    - " + paramName + " trouvé dans l'URL (priorité 1)");
+                    } 
+                    // 2. Sinon, chercher dans les paramètres de la requête
+                    else {
+                        paramValue = request.getParameter(paramName);
+                        if (paramValue != null) {
+                            System.out.println("    - " + paramName + " trouvé dans la requête (priorité 2)");
+                        }
+                    }
+                    
+                    System.out.println("    - " + paramName + " (type: " + param.getType().getSimpleName() + ") = " + paramValue);
+                    
+                    try {
+                        // Conversion de type
+                        if (paramValue != null) {
+                            if (param.getType() == int.class || param.getType() == Integer.class) {
+                                args[i] = Integer.parseInt(paramValue);
+                            } else if (param.getType() == double.class || param.getType() == Double.class) {
+                                args[i] = Double.parseDouble(paramValue);
+                            } else if (param.getType() == boolean.class || param.getType() == Boolean.class) {
+                                args[i] = Boolean.parseBoolean(paramValue);
+                            } else {
+                                args[i] = paramValue;
+                            }
+                        } else {
+                            args[i] = null;
+                        }
+                    } catch (NumberFormatException e) {
+                        System.err.println("     Erreur de conversion pour " + paramName + ": " + e.getMessage());
+                        args[i] = null;
+                    }
+                }
+
+                Object result = matchedPattern.method.invoke(matchedPattern.controller, args);
+>>>>>>> Stashed changes
 
                 if (result instanceof String str) {
                     out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
