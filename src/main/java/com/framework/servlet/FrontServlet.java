@@ -2,10 +2,7 @@ package com.framework.servlet;
 
 import com.framework.annotation.*;
 import com.framework.model.ModelView;
-<<<<<<< Updated upstream
-=======
 import com.framework.annotation.RequestParam;
->>>>>>> Stashed changes
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.*;
@@ -71,11 +68,7 @@ public class FrontServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         super.init();
-<<<<<<< Updated upstream
-        System.out.println("\n=== Initialisation du Framework (Sprint 3-bis) ===");
-=======
         System.out.println("\n=== Initialisation du Framework (Sprint 6-ter) ===");
->>>>>>> Stashed changes
 
         String basePackage = "com.test.controllers";
         List<UrlPattern> urlPatterns = new ArrayList<>();
@@ -257,9 +250,6 @@ public class FrontServlet extends HttpServlet {
                     request.setAttribute(entry.getKey(), entry.getValue());
                 }
 
-<<<<<<< Updated upstream
-                Object result = matchedPattern.method.invoke(matchedPattern.controller);
-=======
                 // Préparer les arguments pour la méthode (Sprint 6-ter)
                 Parameter[] methodParams = matchedPattern.method.getParameters();
                 Object[] args = new Object[methodParams.length];
