@@ -29,10 +29,8 @@ public class FrontServlet extends HttpServlet {
             this.controller = controller;
             this.paramNames = new ArrayList<>();
             
-            // Convertir le pattern en regex
             String regexPattern = pattern;
             
-            // Trouver tous les paramètres {xxx}
             Pattern paramPattern = Pattern.compile("\\{([^}]+)\\}");
             Matcher matcher = paramPattern.matcher(regexPattern);
             
@@ -40,7 +38,6 @@ public class FrontServlet extends HttpServlet {
                 this.paramNames.add(matcher.group(1));
             }
             
-            // Remplacer {xxx} par ([^/]+) pour matcher n'importe quelle valeur
             regexPattern = regexPattern.replaceAll("\\{[^}]+\\}", "([^/]+)");
             regexPattern = "^" + regexPattern + "$";
             
@@ -96,8 +93,16 @@ public class FrontServlet extends HttpServlet {
                             UrlPattern urlPattern = new UrlPattern(url, method, instance);
                             urlPatterns.add(urlPattern);
 
-                            System.out.printf("   ➜ Pattern: %-25s → %s.%s()%n",
-                                    url, cls.getSimpleName(), method.getName());
+                            // Afficher les paramètres de la méthode
+                            Parameter[] params = method.getParameters();
+                            StringBuilder paramStr = new StringBuilder();
+                            for (Parameter p : params) {
+                                paramStr.append(p.getName()).append(", ");
+                            }
+
+                            System.out.printf("   ➜ Pattern: %-25s → %s.%s(%s)%n",
+                                    url, cls.getSimpleName(), method.getName(), 
+                                    paramStr.length() > 0 ? paramStr.substring(0, paramStr.length() - 2) : "");
                         }
                     }
                 }
@@ -176,7 +181,7 @@ public class FrontServlet extends HttpServlet {
                             try {
                                 classes.add(Class.forName(className));
                             } catch (ClassNotFoundException e) {
-                                System.err.println("  ⚠️ Classe non trouvée : " + className);
+                                System.err.println("   Classe non trouvée : " + className);
                             }
                         }
                     }
@@ -226,7 +231,6 @@ public class FrontServlet extends HttpServlet {
         System.out.println("Context path : " + contextPath);
         System.out.println("Path extrait : " + path);
 
-        // Chercher un pattern qui correspond
         UrlPattern matchedPattern = null;
         Map<String, String> pathParams = new HashMap<>();
         
@@ -242,10 +246,10 @@ public class FrontServlet extends HttpServlet {
 
         if (matchedPattern != null) {
             System.out.println("✓ Pattern trouvé : " + matchedPattern.pattern);
-            System.out.println("  Paramètres extraits : " + pathParams);
+            System.out.println("  Paramètres extraits du path : " + pathParams);
 
             try {
-                // Ajouter les paramètres à la requête
+                // Ajouter les paramètres du path à la requête
                 for (Map.Entry<String, String> entry : pathParams.entrySet()) {
                     request.setAttribute(entry.getKey(), entry.getValue());
                 }
@@ -306,7 +310,6 @@ public class FrontServlet extends HttpServlet {
                 }
 
                 Object result = matchedPattern.method.invoke(matchedPattern.controller, args);
->>>>>>> Stashed changes
 
                 if (result instanceof String str) {
                     out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
@@ -340,16 +343,29 @@ public class FrontServlet extends HttpServlet {
                 }
 
             } catch (InvocationTargetException e) {
-                System.err.println("Erreur lors de l'invocation de la méthode :");
+                System.err.println(" Erreur lors de l'invocation de la méthode :");
                 e.getCause().printStackTrace();
                 response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
                 out.println("<h2>500 - Erreur lors de l'exécution</h2>");
+                out.println("<p><strong>Cause:</strong> " + e.getCause().getMessage() + "</p>");
                 out.println("<pre>");
                 e.getCause().printStackTrace(out);
                 out.println("</pre></body></html>");
+            } catch (IllegalArgumentException e) {
+                System.err.println(" Erreur IllegalArgumentException - Vérifiez les paramètres :");
+                System.err.println("   Message: " + e.getMessage());
+                e.printStackTrace();
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
+                out.println("<h2>500 - Erreur de paramètres</h2>");
+                out.println("<p>Les paramètres ne correspondent pas aux arguments de la méthode.</p>");
+                out.println("<p><strong>Message:</strong> " + e.getMessage() + "</p>");
+                out.println("<pre>");
+                e.printStackTrace(out);
+                out.println("</pre></body></html>");
             } catch (Exception e) {
-                System.err.println("Erreur inattendue :");
+                System.err.println(" Erreur inattendue :");
                 e.printStackTrace();
                 response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
