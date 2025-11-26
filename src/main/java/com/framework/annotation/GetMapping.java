@@ -2,8 +2,8 @@ package com.framework.annotation;
 
 import java.lang.annotation.*;
 
-@Target(ElementType.PARAMETER)
+@Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface Param {
+public @interface GetMapping {
     String value();
 }

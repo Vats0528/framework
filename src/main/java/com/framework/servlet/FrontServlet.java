@@ -2,7 +2,6 @@ package com.framework.servlet;
 
 import com.framework.annotation.*;
 import com.framework.model.ModelView;
-import com.framework.annotation.RequestParam;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.*;
@@ -22,11 +21,13 @@ public class FrontServlet extends HttpServlet {
         Method method;
         Object controller;
         List<String> paramNames;
+        HttpMethod httpMethod;
 
-        UrlPattern(String pattern, Method method, Object controller) {
+        UrlPattern(String pattern, Method method, Object controller, HttpMethod httpMethod) {
             this.pattern = pattern;
             this.method = method;
             this.controller = controller;
+            this.httpMethod = httpMethod;
             this.paramNames = new ArrayList<>();
             
             String regexPattern = pattern;
@@ -44,8 +45,8 @@ public class FrontServlet extends HttpServlet {
             this.regex = Pattern.compile(regexPattern);
         }
 
-        boolean matches(String url) {
-            return this.regex.matcher(url).matches();
+        boolean matches(String url, String method) {
+            return this.regex.matcher(url).matches() && this.httpMethod.name().equals(method);
         }
 
         Map<String, String> extractParams(String url) {
@@ -65,7 +66,7 @@ public class FrontServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         super.init();
-        System.out.println("\n=== Initialisation du Framework (Sprint 6-ter) ===");
+        System.out.println("\n=== Initialisation du Framework (Sprint 7) ===");
 
         String basePackage = "com.test.controllers";
         List<UrlPattern> urlPatterns = new ArrayList<>();
@@ -81,27 +82,63 @@ public class FrontServlet extends HttpServlet {
                     System.out.println("  -> @Controller détecté");
                     Object instance = cls.getDeclaredConstructor().newInstance();
 
-                    for (Method method : cls.getDeclaredMethods()) {
-                        if (method.isAnnotationPresent(Url.class)) {
-                            Url annotation = method.getAnnotation(Url.class);
-                            String url = annotation.value();
-                            
+                    for (Method methodObj : cls.getDeclaredMethods()) {
+                        HttpMethod httpMethod = null;
+                        String url = null;
+                        
+                        // Vérifier @GetMapping
+                        if (methodObj.isAnnotationPresent(GetMapping.class)) {
+                            GetMapping annotation = methodObj.getAnnotation(GetMapping.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.GET;
+                        }
+                        // Vérifier @PostMapping
+                        else if (methodObj.isAnnotationPresent(PostMapping.class)) {
+                            PostMapping annotation = methodObj.getAnnotation(PostMapping.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.POST;
+                        }
+                        // Vérifier @PutMapping
+                        else if (methodObj.isAnnotationPresent(PutMapping.class)) {
+                            PutMapping annotation = methodObj.getAnnotation(PutMapping.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.PUT;
+                        }
+                        // Vérifier @DeleteMapping
+                        else if (methodObj.isAnnotationPresent(DeleteMapping.class)) {
+                            DeleteMapping annotation = methodObj.getAnnotation(DeleteMapping.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.DELETE;
+                        }
+                        // Vérifier @RequestMapping (générale)
+                        else if (methodObj.isAnnotationPresent(RequestMapping.class)) {
+                            RequestMapping annotation = methodObj.getAnnotation(RequestMapping.class);
+                            url = annotation.value();
+                            httpMethod = annotation.method();
+                        }
+                        // Vérifier l'ancienne @Url (compatibilité)
+                        else if (methodObj.isAnnotationPresent(Url.class)) {
+                            Url annotation = methodObj.getAnnotation(Url.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.GET; // Par défaut GET
+                        }
+                        
+                        if (url != null) {
                             if (!url.startsWith("/")) {
                                 url = "/" + url;
                             }
                             
-                            UrlPattern urlPattern = new UrlPattern(url, method, instance);
+                            UrlPattern urlPattern = new UrlPattern(url, methodObj, instance, httpMethod);
                             urlPatterns.add(urlPattern);
 
-                            // Afficher les paramètres de la méthode
-                            Parameter[] params = method.getParameters();
+                            Parameter[] params = methodObj.getParameters();
                             StringBuilder paramStr = new StringBuilder();
                             for (Parameter p : params) {
                                 paramStr.append(p.getName()).append(", ");
                             }
 
-                            System.out.printf("   ➜ Pattern: %-25s → %s.%s(%s)%n",
-                                    url, cls.getSimpleName(), method.getName(), 
+                            System.out.printf("   ➜ [%s] %-25s → %s.%s(%s)%n",
+                                    httpMethod, url, cls.getSimpleName(), methodObj.getName(), 
                                     paramStr.length() > 0 ? paramStr.substring(0, paramStr.length() - 2) : "");
                         }
                     }
@@ -195,19 +232,67 @@ public class FrontServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) 
             throws ServletException, IOException {
-        processRequest(request, response);
+        processRequest(request, response, "GET");
     }
 
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        processRequest(request, response);
+        processRequest(request, response, "POST");
     }
 
-    private void processRequest(HttpServletRequest request, HttpServletResponse response)
+    @Override
+    protected void doPut(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        processRequest(request, response, "PUT");
+    }
+
+    @Override
+    protected void doDelete(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        processRequest(request, response, "DELETE");
+    }
+
+    private void parseRequestBody(HttpServletRequest request) throws IOException {
+        String contentType = request.getContentType();
+        
+        if (contentType != null && contentType.contains("application/x-www-form-urlencoded")) {
+            BufferedReader reader = request.getReader();
+            StringBuilder body = new StringBuilder();
+            String line;
+            
+            while ((line = reader.readLine()) != null) {
+                body.append(line);
+            }
+            
+            String bodyString = body.toString();
+            if (!bodyString.isEmpty()) {
+                String[] pairs = bodyString.split("&");
+                for (String pair : pairs) {
+                    String[] keyValue = pair.split("=");
+                    if (keyValue.length == 2) {
+                        try {
+                            String key = java.net.URLDecoder.decode(keyValue[0], "UTF-8");
+                            String value = java.net.URLDecoder.decode(keyValue[1], "UTF-8");
+                            request.setAttribute(key, value);
+                        } catch (Exception e) {
+                            System.err.println("Erreur lors du parsing du body: " + e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void processRequest(HttpServletRequest request, HttpServletResponse response, String httpMethod)
             throws ServletException, IOException {
 
         response.setContentType("text/html;charset=UTF-8");
+        
+        // Pour PUT, DELETE et POST, lire le body et parser les paramètres
+        if ("PUT".equals(httpMethod) || "DELETE".equals(httpMethod) || "POST".equals(httpMethod)) {
+            parseRequestBody(request);
+        }
 
         @SuppressWarnings("unchecked")
         List<UrlPattern> urlPatterns = (List<UrlPattern>) getServletContext().getAttribute("URL_PATTERNS");
@@ -227,6 +312,7 @@ public class FrontServlet extends HttpServlet {
         PrintWriter out = response.getWriter();
         
         System.out.println("\n=== Requête reçue ===");
+        System.out.println("Méthode HTTP : " + httpMethod);
         System.out.println("URI complète : " + fullPath);
         System.out.println("Context path : " + contextPath);
         System.out.println("Path extrait : " + path);
@@ -236,7 +322,7 @@ public class FrontServlet extends HttpServlet {
         
         if (urlPatterns != null) {
             for (UrlPattern pattern : urlPatterns) {
-                if (pattern.matches(path)) {
+                if (pattern.matches(path, httpMethod)) {
                     matchedPattern = pattern;
                     pathParams = pattern.extractParams(path);
                     break;
@@ -245,16 +331,14 @@ public class FrontServlet extends HttpServlet {
         }
 
         if (matchedPattern != null) {
-            System.out.println("✓ Pattern trouvé : " + matchedPattern.pattern);
+            System.out.println("✓ Pattern trouvé : " + matchedPattern.pattern + " [" + matchedPattern.httpMethod + "]");
             System.out.println("  Paramètres extraits du path : " + pathParams);
 
             try {
-                // Ajouter les paramètres du path à la requête
                 for (Map.Entry<String, String> entry : pathParams.entrySet()) {
                     request.setAttribute(entry.getKey(), entry.getValue());
                 }
 
-                // Préparer les arguments pour la méthode (Sprint 6-ter)
                 Parameter[] methodParams = matchedPattern.method.getParameters();
                 Object[] args = new Object[methodParams.length];
                 
@@ -265,31 +349,35 @@ public class FrontServlet extends HttpServlet {
                     String paramName = param.getName();
                     String paramValue = null;
                     
-                    // Vérifier si @RequestParam est présent
                     RequestParam requestParamAnnotation = param.getAnnotation(RequestParam.class);
                     if (requestParamAnnotation != null) {
                         paramName = requestParamAnnotation.value();
                         System.out.println("    - @RequestParam détecté: " + paramName);
                     }
                     
-                    // ORDRE DE PRIORITÉ (Sprint 6-ter)
-                    // 1. Chercher d'abord dans les paramètres de l'URL
+                    // ORDRE DE PRIORITÉ
+                    // 1. URL path parameters
                     if (pathParams.containsKey(paramName)) {
                         paramValue = pathParams.get(paramName);
                         System.out.println("    - " + paramName + " trouvé dans l'URL (priorité 1)");
                     } 
-                    // 2. Sinon, chercher dans les paramètres de la requête
-                    else {
+                    // 2. Request parameters (GET/POST query string)
+                    else if (request.getParameter(paramName) != null) {
                         paramValue = request.getParameter(paramName);
-                        if (paramValue != null) {
-                            System.out.println("    - " + paramName + " trouvé dans la requête (priorité 2)");
+                        System.out.println("    - " + paramName + " trouvé dans les paramètres (priorité 2)");
+                    }
+                    // 3. Request body (PUT/DELETE/POST body)
+                    else {
+                        Object bodyParam = request.getAttribute(paramName);
+                        if (bodyParam != null) {
+                            paramValue = bodyParam.toString();
+                            System.out.println("    - " + paramName + " trouvé dans le body (priorité 3)");
                         }
                     }
                     
                     System.out.println("    - " + paramName + " (type: " + param.getType().getSimpleName() + ") = " + paramValue);
                     
                     try {
-                        // Conversion de type
                         if (paramValue != null) {
                             if (param.getType() == int.class || param.getType() == Integer.class) {
                                 args[i] = Integer.parseInt(paramValue);
@@ -317,7 +405,6 @@ public class FrontServlet extends HttpServlet {
                     out.println("</body></html>");
                 } 
                 else if (result instanceof ModelView mv) {
-                    // Ajouter tous les attributs du ModelView à la requête
                     for (Map.Entry<String, Object> entry : mv.getAttributes().entrySet()) {
                         request.setAttribute(entry.getKey(), entry.getValue());
                     }
@@ -379,14 +466,15 @@ public class FrontServlet extends HttpServlet {
             out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
             out.println("<h2>404 - URL non trouvée</h2>");
             out.println("<p>Path demandé : <strong>" + path + "</strong></p>");
+            out.println("<p>Méthode HTTP : <strong>" + httpMethod + "</strong></p>");
             out.println("<p>Patterns disponibles :</p><ul>");
             if (urlPatterns != null) {
                 for (UrlPattern pattern : urlPatterns) {
-                    out.println("<li>" + pattern.pattern + "</li>");
+                    out.println("<li>[" + pattern.httpMethod + "] " + pattern.pattern + "</li>");
                 }
             }
             out.println("</ul></body></html>");
-            System.err.println("✗ Aucun pattern pour : " + path);
+            System.err.println("✗ Aucun pattern pour : " + httpMethod + " " + path);
         }
     }
 }
