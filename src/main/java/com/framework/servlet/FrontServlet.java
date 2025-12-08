@@ -1,6 +1,10 @@
 package com.framework.servlet;
 
 import com.framework.annotation.*;
+import com.framework.annotations.API;
+import com.framework.annotations.Get;
+import com.framework.annotations.Json;
+import com.framework.util.ApiResponse;
 import com.framework.model.ModelView;
 import com.framework.util.ParameterBinder;
 import jakarta.servlet.*;
@@ -116,6 +120,27 @@ public class FrontServlet extends HttpServlet {
                             RequestMapping annotation = methodObj.getAnnotation(RequestMapping.class);
                             url = annotation.value();
                             httpMethod = annotation.method();
+                        }
+                        // Sprint 9: Vérifier les nouvelles annotations @Get, @Post, @Put, @Delete
+                        else if (methodObj.isAnnotationPresent(Get.class)) {
+                            Get annotation = methodObj.getAnnotation(Get.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.GET;
+                        }
+                        else if (methodObj.isAnnotationPresent(com.framework.annotations.Post.class)) {
+                            com.framework.annotations.Post annotation = methodObj.getAnnotation(com.framework.annotations.Post.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.POST;
+                        }
+                        else if (methodObj.isAnnotationPresent(com.framework.annotations.Put.class)) {
+                            com.framework.annotations.Put annotation = methodObj.getAnnotation(com.framework.annotations.Put.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.PUT;
+                        }
+                        else if (methodObj.isAnnotationPresent(com.framework.annotations.Delete.class)) {
+                            com.framework.annotations.Delete annotation = methodObj.getAnnotation(com.framework.annotations.Delete.class);
+                            url = annotation.value();
+                            httpMethod = HttpMethod.DELETE;
                         }
                         // Vérifier l'ancienne @Url (compatibilité)
                         else if (methodObj.isAnnotationPresent(Url.class)) {
@@ -257,6 +282,8 @@ public class FrontServlet extends HttpServlet {
     private void processRequest(HttpServletRequest request, HttpServletResponse response, String httpMethod)
             throws ServletException, IOException {
 
+        // On détecte si la méthode cible est une API REST (Sprint 9)
+        boolean isApiRest = false;
         response.setContentType("text/html;charset=UTF-8");
 
         @SuppressWarnings("unchecked")
@@ -296,6 +323,11 @@ public class FrontServlet extends HttpServlet {
         }
 
         if (matchedPattern != null) {
+            // Sprint 9 : détection API REST
+            boolean hasApi = matchedPattern.method.isAnnotationPresent(API.class);
+            boolean hasGet = matchedPattern.method.isAnnotationPresent(Get.class);
+            boolean hasJson = matchedPattern.method.isAnnotationPresent(Json.class);
+            isApiRest = hasApi || hasGet || hasJson;
             System.out.println("✓ Pattern trouvé : " + matchedPattern.pattern + " [" + matchedPattern.httpMethod + "]");
             System.out.println("  Paramètres extraits du path : " + pathParams);
 
@@ -315,31 +347,38 @@ public class FrontServlet extends HttpServlet {
 
                 Object result = matchedPattern.method.invoke(matchedPattern.controller, args);
 
-                if (result instanceof String str) {
+                if (isApiRest) {
+                    response.setContentType("application/json;charset=UTF-8");
+                    String json;
+                    if (result != null) {
+                        if (result instanceof List<?>) {
+                            json = toJson(ApiResponse.success(result));
+                        } else {
+                            json = toJson(ApiResponse.success(result));
+                        }
+                    } else {
+                        json = toJson(ApiResponse.error(404, "Aucune donnée trouvée"));
+                    }
+                    out.print(json);
+                } else if (result instanceof String str) {
                     out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
                     out.println("<h3>Résultat :</h3><pre>" + str + "</pre>");
                     out.println("</body></html>");
-                } 
-                else if (result instanceof ModelView mv) {
+                } else if (result instanceof ModelView mv) {
                     for (Map.Entry<String, Object> entry : mv.getAttributes().entrySet()) {
                         request.setAttribute(entry.getKey(), entry.getValue());
                     }
-                    
                     String viewPath = mv.getView();
-                    
                     if (!viewPath.endsWith(".jsp")) {
                         viewPath += ".jsp";
                     }
-                    
                     if (!viewPath.startsWith("/")) {
                         viewPath = "/" + viewPath;
                     }
-                    
                     System.out.println("Forward vers la vue : " + viewPath);
                     RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
                     dispatcher.forward(request, response);
-                }
-                else {
+                } else {
                     out.println("<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body>");
                     out.println("<p>Méthode exécutée avec succès (retour : " + (result != null ? result.getClass().getSimpleName() : "null") + ")</p>");
                     out.println("</body></html>");
@@ -392,5 +431,83 @@ public class FrontServlet extends HttpServlet {
             out.println("</ul></body></html>");
             System.err.println("✗ Aucun pattern pour : " + httpMethod + " " + path);
         }
+    }
+
+    // Utilitaire simple pour convertir en JSON (remplacer par Gson/Jackson si besoin)
+    private String toJson(Map<String, Object> map) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        int i = 0;
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            sb.append("\"").append(entry.getKey()).append("\":");
+            Object value = entry.getValue();
+            if (value instanceof String) {
+                sb.append("\"").append(escapeJson((String) value)).append("\"");
+            } else if (value instanceof Number || value instanceof Boolean) {
+                sb.append(value);
+            } else if (value instanceof List<?>) {
+                sb.append("[");
+                List<?> list = (List<?>) value;
+                for (int j = 0; j < list.size(); j++) {
+                    sb.append(toJsonObject(list.get(j)));
+                    if (j < list.size() - 1) sb.append(",");
+                }
+                sb.append("]");
+            } else if (value instanceof Map<?, ?>) {
+                sb.append(toJson((Map<String, Object>) value));
+            } else {
+                sb.append(toJsonObject(value));
+            }
+            if (i < map.size() - 1) sb.append(",");
+            i++;
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private String toJsonObject(Object obj) {
+        if (obj == null) return "null";
+        if (obj instanceof String) return "\"" + escapeJson((String) obj) + "\"";
+        if (obj instanceof Number || obj instanceof Boolean) return obj.toString();
+        if (obj instanceof Map<?, ?>) return toJson((Map<String, Object>) obj);
+        // Pour les objets simples, on sérialise les champs publics
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        Field[] fields = obj.getClass().getDeclaredFields();
+        int i = 0;
+        for (Field f : fields) {
+            f.setAccessible(true);
+            try {
+                sb.append("\"").append(f.getName()).append("\":");
+                Object v = f.get(obj);
+                if (v instanceof String) {
+                    sb.append("\"").append(escapeJson((String) v)).append("\"");
+                } else if (v instanceof Number || v instanceof Boolean) {
+                    sb.append(v);
+                } else if (v instanceof List<?>) {
+                    sb.append("[");
+                    List<?> list = (List<?>) v;
+                    for (int j = 0; j < list.size(); j++) {
+                        sb.append(toJsonObject(list.get(j)));
+                        if (j < list.size() - 1) sb.append(",");
+                    }
+                    sb.append("]");
+                } else if (v instanceof Map<?, ?>) {
+                    sb.append(toJson((Map<String, Object>) v));
+                } else {
+                    sb.append(toJsonObject(v));
+                }
+            } catch (Exception e) {
+                sb.append("null");
+            }
+            if (i < fields.length - 1) sb.append(",");
+            i++;
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    private String escapeJson(String s) {
+        return s.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
     }
 }
