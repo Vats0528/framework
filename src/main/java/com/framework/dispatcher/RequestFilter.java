@@ -24,7 +24,7 @@ public class RequestFilter implements Filter {
         
         // Raha URL manomboka amin'ny /front, alefa any amin'ny FrontServlet
         if (path.startsWith("/front")) {
-            System.out.println("➡️ Redirect to FrontServlet: " + path);
+            System.out.println(" Redirect to FrontServlet: " + path);
             req.getRequestDispatcher(path).forward(request, response);
         } else {
             // Raha tsy /front, avela handeha
