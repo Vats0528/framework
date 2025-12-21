@@ -5,10 +5,12 @@ import com.framework.annotations.API;
 import com.framework.annotations.Get;
 import com.framework.annotations.Json;
 import com.framework.util.ApiResponse;
+import com.framework.util.UploadedFile;
 import com.framework.model.ModelView;
-import com.framework.util.ParameterBinder;
 import jakarta.servlet.*;
+import jakarta.servlet.annotation.MultipartConfig;
 import jakarta.servlet.http.*;
+import jakarta.servlet.http.Part;
 import java.io.*;
 import java.lang.reflect.*;
 import java.net.URL;
@@ -18,6 +20,7 @@ import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@MultipartConfig
 public class FrontServlet extends HttpServlet {
 
     private static class UrlPattern {
@@ -71,7 +74,7 @@ public class FrontServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         super.init();
-        System.out.println("\n=== Initialisation du Framework (Sprint 8) ===");
+        System.out.println("\n=== Initialisation du Framework (Sprint 10) ===");
 
         String basePackage = "com.test.controllers";
         List<UrlPattern> urlPatterns = new ArrayList<>();
@@ -192,7 +195,7 @@ public class FrontServlet extends HttpServlet {
         Enumeration<URL> resources = classLoader.getResources(path);
     
         if (!resources.hasMoreElements()) {
-            System.err.println(" ATTENTION : Aucune ressource trouvée pour le package " + packageName);
+            System.err.println("⚠️ ATTENTION : Aucune ressource trouvée pour le package " + packageName);
             System.err.println("   Vérifiez que le JAR contient bien ce package");
         }
         
@@ -279,12 +282,48 @@ public class FrontServlet extends HttpServlet {
         processRequest(request, response, "DELETE");
     }
 
+    private void parseRequestBody(HttpServletRequest request) throws IOException {
+        String contentType = request.getContentType();
+        
+        if (contentType != null && contentType.contains("application/x-www-form-urlencoded")) {
+            BufferedReader reader = request.getReader();
+            StringBuilder body = new StringBuilder();
+            String line;
+            
+            while ((line = reader.readLine()) != null) {
+                body.append(line);
+            }
+            
+            String bodyString = body.toString();
+            if (!bodyString.isEmpty()) {
+                String[] pairs = bodyString.split("&");
+                for (String pair : pairs) {
+                    String[] keyValue = pair.split("=");
+                    if (keyValue.length == 2) {
+                        try {
+                            String key = java.net.URLDecoder.decode(keyValue[0], "UTF-8");
+                            String value = java.net.URLDecoder.decode(keyValue[1], "UTF-8");
+                            request.setAttribute(key, value);
+                        } catch (Exception e) {
+                            System.err.println("Erreur lors du parsing du body: " + e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private void processRequest(HttpServletRequest request, HttpServletResponse response, String httpMethod)
             throws ServletException, IOException {
 
         // On détecte si la méthode cible est une API REST (Sprint 9)
         boolean isApiRest = false;
         response.setContentType("text/html;charset=UTF-8");
+        
+        // Pour PUT, DELETE et POST, lire le body et parser les paramètres
+        if ("PUT".equals(httpMethod) || "DELETE".equals(httpMethod) || "POST".equals(httpMethod)) {
+            parseRequestBody(request);
+        }
 
         @SuppressWarnings("unchecked")
         List<UrlPattern> urlPatterns = (List<UrlPattern>) getServletContext().getAttribute("URL_PATTERNS");
@@ -337,13 +376,128 @@ public class FrontServlet extends HttpServlet {
                 }
 
                 Parameter[] methodParams = matchedPattern.method.getParameters();
-                Object[] args;
+                Object[] args = new Object[methodParams.length];
                 
                 System.out.println("  Paramètres de la méthode : " + methodParams.length);
                 
-                // Sprint 8: Utiliser le ParameterBinder pour le binding automatique avec réflexion
-                // Supporte les objets simples, tableaux d'objets et types primitifs
-                args = ParameterBinder.bindParameters(methodParams, request);
+                for (int i = 0; i < methodParams.length; i++) {
+                    Parameter param = methodParams[i];
+                    String paramName = param.getName();
+                    String paramValue = null;
+                    boolean bound = false;
+                    
+                    RequestParam requestParamAnnotation = param.getAnnotation(RequestParam.class);
+                    if (requestParamAnnotation != null) {
+                        paramName = requestParamAnnotation.value();
+                        System.out.println("    - @RequestParam détecté: " + paramName);
+                    }
+                    
+                    // ORDRE DE PRIORITÉ
+                    // 1. URL path parameters
+                    if (pathParams.containsKey(paramName)) {
+                        paramValue = pathParams.get(paramName);
+                        System.out.println("    - " + paramName + " trouvé dans l'URL (priorité 1)");
+                    } 
+                    // 2. Request parameters (GET/POST query string)
+                    else if (request.getParameter(paramName) != null) {
+                        paramValue = request.getParameter(paramName);
+                        System.out.println("    - " + paramName + " trouvé dans les paramètres (priorité 2)");
+                    }
+                    // 3. Request body (PUT/DELETE/POST body)
+                    else {
+                        Object bodyParam = request.getAttribute(paramName);
+                        if (bodyParam != null) {
+                            paramValue = bodyParam.toString();
+                            System.out.println("    - " + paramName + " trouvé dans le body (priorité 3)");
+                        }
+                    }
+                    
+                    System.out.println("    - " + paramName + " (type: " + param.getType().getSimpleName() + ") = " + paramValue);
+
+                    // Multipart/file binding support (Sprint 10)
+                    String contentType = request.getContentType();
+                    boolean isMultipart = contentType != null && contentType.toLowerCase().contains("multipart/form-data");
+
+                    try {
+                        if (isMultipart) {
+                            Class<?> pType = param.getType();
+                            // Single UploadedFile
+                            if (pType.getSimpleName().equals("UploadedFile") || pType == UploadedFile.class) {
+                                try {
+                                    Part part = request.getPart(paramName);
+                                    if (part != null && part.getSubmittedFileName() != null) {
+                                        byte[] data = UploadedFile.readAllBytes(part.getInputStream());
+                                        UploadedFile uf = new UploadedFile(paramName, part.getSubmittedFileName(), part.getContentType(), data);
+                                        args[i] = uf;
+                                    } else {
+                                        args[i] = null;
+                                    }
+                                    bound = true;
+                                } catch (Exception e) {
+                                    System.err.println("    Erreur binding UploadedFile: " + e.getMessage());
+                                    args[i] = null;
+                                    bound = true;
+                                }
+                            }
+                            // Array of UploadedFile
+                            else if (pType.isArray() && pType.getComponentType() == UploadedFile.class) {
+                                try {
+                                    Collection<Part> parts = request.getParts();
+                                    List<UploadedFile> collected = new ArrayList<>();
+                                    for (Part part : parts) {
+                                        if (part.getName().equals(paramName) && part.getSubmittedFileName() != null) {
+                                            byte[] data = UploadedFile.readAllBytes(part.getInputStream());
+                                            collected.add(new UploadedFile(paramName, part.getSubmittedFileName(), part.getContentType(), data));
+                                        }
+                                    }
+                                    UploadedFile[] arr = collected.toArray(new UploadedFile[0]);
+                                    args[i] = arr;
+                                } catch (Exception e) {
+                                    System.err.println("    Erreur binding UploadedFile[]: " + e.getMessage());
+                                    args[i] = null;
+                                }
+                                bound = true;
+                            }
+                            // Map binding: Map<String, UploadedFile> -> we will create Map of fieldName -> UploadedFile
+                            else if (Map.class.isAssignableFrom(pType)) {
+                                try {
+                                    Collection<Part> parts = request.getParts();
+                                    Map<String, UploadedFile> map = new LinkedHashMap<>();
+                                    for (Part part : parts) {
+                                        if (part.getSubmittedFileName() != null) {
+                                            byte[] data = UploadedFile.readAllBytes(part.getInputStream());
+                                            map.put(part.getName(), new UploadedFile(part.getName(), part.getSubmittedFileName(), part.getContentType(), data));
+                                        }
+                                    }
+                                    args[i] = map;
+                                } catch (Exception e) {
+                                    System.err.println("    Erreur binding Map<String,UploadedFile>: " + e.getMessage());
+                                    args[i] = null;
+                                }
+                                bound = true;
+                            }
+                        }
+
+                        if (!bound) {
+                            if (paramValue != null) {
+                                if (param.getType() == int.class || param.getType() == Integer.class) {
+                                    args[i] = Integer.parseInt(paramValue);
+                                } else if (param.getType() == double.class || param.getType() == Double.class) {
+                                    args[i] = Double.parseDouble(paramValue);
+                                } else if (param.getType() == boolean.class || param.getType() == Boolean.class) {
+                                    args[i] = Boolean.parseBoolean(paramValue);
+                                } else {
+                                    args[i] = paramValue;
+                                }
+                            } else {
+                                args[i] = null;
+                            }
+                        }
+                    } catch (NumberFormatException e) {
+                        System.err.println("     Erreur de conversion pour " + paramName + ": " + e.getMessage());
+                        args[i] = null;
+                    }
+                }
 
                 Object result = matchedPattern.method.invoke(matchedPattern.controller, args);
 
